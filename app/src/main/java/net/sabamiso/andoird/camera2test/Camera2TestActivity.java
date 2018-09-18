@@ -1,6 +1,7 @@
 package net.sabamiso.andoird.camera2test;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -52,6 +53,8 @@ public class Camera2TestActivity extends AppCompatActivity implements ActivityCo
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        Log.d(TAG, "onCreate()");
+
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_camera2_test_activity);
 
@@ -72,17 +75,45 @@ public class Camera2TestActivity extends AppCompatActivity implements ActivityCo
 
     @Override
     protected void onResume() {
+        Log.d(TAG, "onResume()");
         super.onResume();
-        startCamera();
+
+        //
+        // ここを通過する際、アプリのpermissionの状態は、次の3種類
+        //    1. permissionダイアログでユーザが拒否した場合
+        //    2. permissionが未確認の状態
+        //    3. permissionダイアログでユーザが許可した場合
+        //
+        if (isIgnorePermission() == true) {
+            // 1. permissionダイアログでユーザが拒否した場合
+            // とりあえずToastを表示して、カメラの権限を許可してもらうように促す...
+            Toast.makeText(this, "アプリ情報から、このアプリのカメラのパーミッションを許可してください…", Toast.LENGTH_LONG).show();
+        }
+        else if (hasPermission() == false) {
+            // 2. permissionが未確認の状態
+            // 未確認なのでパーミッションダイアログを表示
+            requestPermission();
+        }
+        else {
+            // 3. permissionダイアログでユーザが許可した場合
+            // カメラプレビューを開始する
+            startCamera();
+
+            // この例の場合は、SurfaceViewを使用しないためいきなりonResume()で開始してもOK
+            // SurfaceViewを使用する場合は、SurfaceHolder.Callback.surfaceCreated()が呼び出された後で初期化する必要があるので要注意…
+        }
     }
 
     @Override
     protected void onPause() {
+        Log.d(TAG, "onPause()");
         super.onPause();
         stopCamera();
     }
 
-    boolean checkCameraPermission() {
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    boolean hasPermission() {
         int permission = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA);
         if (permission != PackageManager.PERMISSION_GRANTED) {
             return false;
@@ -90,38 +121,36 @@ public class Camera2TestActivity extends AppCompatActivity implements ActivityCo
         return true;
     }
 
+    boolean isIgnorePermission() {
+        return ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.CAMERA);
+    }
+
     protected final int MY_PERMISSIONS_REQUEST_CAMERA = 1234;
 
     void requestPermission() {
-        if (ActivityCompat.shouldShowRequestPermissionRationale(this,
-                Manifest.permission.CAMERA)) {
-            // ここは、一度パーミッションダイアログを拒否された場合に実行される場所
-            // ここでパーミッションが必要な理由を表示して、パーミッションの許可を促す
-            Toast.makeText(this, "設定→アプリと通知から、このアプリのカメラのパーミッションを許可してください…", Toast.LENGTH_LONG).show();
-        } else {
-            // パーミッションダイアログの表示
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.CAMERA},
-                    MY_PERMISSIONS_REQUEST_CAMERA);
-        }
+        ActivityCompat.requestPermissions(this,
+                new String[]{Manifest.permission.CAMERA},
+                MY_PERMISSIONS_REQUEST_CAMERA);
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode,
                                            String permissions[], int[] grantResults) {
+        Log.d(TAG, "onRequestPermissionsResult()");
         switch (requestCode) {
             case MY_PERMISSIONS_REQUEST_CAMERA: {
                 if (grantResults.length > 0  && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    Log.d(TAG, "GRANTED Camera");
-                    startCameraImpl();
+                    Log.d(TAG, "GRANTED Camera permission");
                 } else {
-                    Toast.makeText(this, "カメラのパーミッションを許可してください…", Toast.LENGTH_LONG).show();
+                    Log.d(TAG, "IGNORE Camera permission");
                 }
 
                 return;
             }
         }
     }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     String getBackfaceCameraId() {
         CameraManager manager = (CameraManager)getSystemService(Context.CAMERA_SERVICE);
@@ -141,21 +170,8 @@ public class Camera2TestActivity extends AppCompatActivity implements ActivityCo
         return null;
     }
 
+    @SuppressLint("MissingPermission")
     void startCamera() {
-        if (checkCameraPermission() == false) {
-            requestPermission();
-            return;
-        }
-
-        startCameraImpl();
-    }
-
-    void startCameraImpl() {
-        if (checkCameraPermission() == false) {
-            Log.e(TAG, "startCameraImpl() : checkCameraPermission() == false...");
-            return;
-        }
-
         CameraManager manager = (CameraManager)getSystemService(Context.CAMERA_SERVICE);
 
         try {
@@ -217,6 +233,8 @@ public class Camera2TestActivity extends AppCompatActivity implements ActivityCo
                 builder.set(CaptureRequest.JPEG_ORIENTATION, getOrientation(rotation));
                 cameraDevice.createCaptureSession(surfacesList, captureSessionCallback, null);
 
+                // addTarget(), createCaptureSession()に使用するsurfaceは複数指定可能
+                // SurfaceView, TextureView, ImageReaderなどが使用可能
             } catch (CameraAccessException e) {
                 e.printStackTrace();
             }
@@ -262,6 +280,7 @@ public class Camera2TestActivity extends AppCompatActivity implements ActivityCo
         public void onCaptureCompleted(CameraCaptureSession session,
                                        CaptureRequest request,
                                        TotalCaptureResult result) {
+            //キャプチャ完了時に呼び出されるコールバック関数
             //Log.d(TAG, "CameraCaptureSession.StateCallback.onCaptureCompleted()");
         }
     };
@@ -270,9 +289,13 @@ public class Camera2TestActivity extends AppCompatActivity implements ActivityCo
 
         @Override
         public void onImageAvailable(ImageReader imageReader) {
+            //ImageReaderの内容が更新されたら呼び出されるコールバック
             //Log.d(TAG, "ImageReader.OnImageAvailableListener.onImageAvailable()");
 
             Image img = imageReader.acquireLatestImage();
+            if (img == null) {
+                return;
+            }
 
             // planeからjpeg_dataを取り出す
             Image.Plane[] planes = img.getPlanes();
